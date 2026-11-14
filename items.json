@@ -1,25 +1,62 @@
 {
-  "version": 1,
   "items": {
-    "iron_ore": {
-      "name": "铁矿",
-      "icon": "🪨",
-      "tier": 0
-    },
-    "bomb_monster_ash": {
-      "name": "爆弹怪的灰",
-      "icon": "💥",
-      "tier": 0
-    },
-    "white_steel_ingot": {
-      "name": "白钢锭",
-      "icon": "🥈",
-      "tier": 1,
+    "fire_crystal": { "name": "火之碎晶", "icon": "🔥" },
+    "ice_crystal": { "name": "冰之碎晶", "icon": "❄️" },
+    "wind_crystal": { "name": "风之碎晶", "icon": "🌪️" },
+    "fire_cluster": { "name": "火之晶簇", "icon": "💎" },
+    "ice_cluster": { "name": "冰之晶簇", "icon": "💎" },
+    "wind_cluster": { "name": "风之晶簇", "icon": "💎" },
+    "iron_ore": { "name": "铁矿", "icon": "🪨" },
+    "silver_ore": { "name": "银矿", "icon": "🪨" },
+    "mythril_ore": { "name": "秘银矿", "icon": "🪨" },
+    "cobalt_ore": { "name": "钴铁矿", "icon": "🪨" },
+    "darksteel_ore": { "name": "玄铁矿", "icon": "🪨" },
+    "bomb_ash": { "name": "爆弹怪的灰", "icon": "💥" },
+    "coke": { "name": "焦炭", "icon": "⬛" },
+    "crimson_sap": { "name": "绯红树汁", "icon": "🩸" },
+    "petrified_wood": { "name": "硅化木", "icon": "🪵" },
+
+    "silver_ingot": { "name": "白银锭", "icon": "🥈" },
+    "mythril_ingot": { "name": "秘银锭", "icon": "💠" },
+    "darksteel_block": { "name": "玄钢块", "icon": "🧱" },
+    "white_steel": { "name": "白钢锭", "icon": "⬜" },
+    "cobalt_ingot": { "name": "钴铁锭", "icon": "🔷" },
+    "white_rivet": { "name": "白钢铆钉", "icon": "📌" },
+    "mythril_rivet": { "name": "秘银铆钉", "icon": "📌" },
+    "white_plate": { "name": "白钢连接板", "icon": "🛡️" },
+    "cobalt_plate": { "name": "钴铁连接板", "icon": "🛡️" },
+    "god_wood": { "name": "古神木材", "icon": "🪵" },
+    "darksteel_ingot": { "name": "玄钢锭", "icon": "⚫" }
+  },
+  
+  "recipes": {
+    "silver_ingot": [ { "item": "silver_ore", "amount": 3 } ],
+    "mythril_ingot": [ { "item": "mythril_ore", "amount": 3 } ],
+    "darksteel_block": [ { "item": "darksteel_ore", "amount": 3 } ],
+    "white_steel": [ { "item": "iron_ore", "amount": 2 }, { "item": "bomb_ash", "amount": 1 } ],
+    "cobalt_ingot": [ { "item": "cobalt_ore", "amount": 2 }, { "item": "iron_ore", "amount": 2 } ],
+    "white_rivet": [ { "item": "white_steel", "amount": 1 } ],
+    "mythril_rivet": [ { "item": "mythril_ingot", "amount": 1 } ],
+    "white_plate": [ { "item": "white_steel", "amount": 1 } ],
+    "cobalt_plate": [ { "item": "cobalt_ingot", "amount": 1 } ],
+    "god_wood": [ { "item": "petrified_wood", "amount": 1 }, { "item": "crimson_sap", "amount": 1 } ],
+    "darksteel_ingot": [ { "item": "darksteel_block", "amount": 2 }, { "item": "coke", "amount": 9 } ]
+  },
+
+  "parts": {
+    "0100": {
+      "name": "鲨鱼级船尾",
       "recipe": [
-        { "itemId": "iron_ore",          "amount": 2 },
-        { "itemId": "bomb_monster_ash",  "amount": 1 }
+        { "item": "white_steel", "amount": 54 },
+        { "item": "cobalt_ingot", "amount": 78 },
+        { "item": "darksteel_ingot", "amount": 9 },
+        { "item": "silver_ingot", "amount": 30 },
+        { "item": "white_rivet", "amount": 24 },
+        { "item": "mythril_rivet", "amount": 30 },
+        { "item": "white_plate", "amount": 30 },
+        { "item": "cobalt_plate", "amount": 24 },
+        { "item": "god_wood", "amount": 9 }
       ]
     }
-  },
-  "craftableIds": ["white_steel_ingot"]
+  }
 }
