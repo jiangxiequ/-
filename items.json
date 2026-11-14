@@ -25,7 +25,7 @@
     "mythril_rivet": { "name": "秘银铆钉", "icon": "📌" },
     "white_plate": { "name": "白钢连接板", "icon": "🛡️" },
     "cobalt_plate": { "name": "钴铁连接板", "icon": "🛡️" },
-    "god_wood": { "name": "古神木材", "icon": "🪵" },
+    "god_wood": { "name": "古神木材", "icon": "./icons/gushenmucai.webp" },
     "darksteel_ingot": { "name": "玄钢锭", "icon": "⚫" }
   },
   
