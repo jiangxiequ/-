@@ -124,7 +124,7 @@
         });
     }
 
-    function renderCraftPanel() {
+       function renderCraftPanel() {
         if (!currentPartCode || !partsDB[currentPartCode]) {
             craftBody.innerHTML = '<div class="empty-state">请在左侧选择一个部件</div>';
             return;
@@ -156,7 +156,6 @@
             const missingClass = missing > 0 ? 'neg' : 'pos';
             const hasRecipe = recipes[itemId];
 
-            //根据 expandedItems 判断是否默认展开
             const isExpanded = expandedItems.has(itemId);
             const showClass = isExpanded ? 'show' : '';
             const iconClass = isExpanded ? 'toggle-icon open' : 'toggle-icon';
@@ -176,8 +175,8 @@
                     </div>
             `;
             if (hasRecipe && !isUnlimited) { 
-                //加上 showClass
                 nodeHtml += `<ul class="tree-children ${showClass}">`;
+                // 树状图往下展开，还是基于“缺口”来算
                 const actualCraftAmount = Math.max(0, neededAmount - have);
                 for (let comp of recipes[itemId]) {
                     nodeHtml += renderNode(comp.item, actualCraftAmount * comp.amount);
@@ -191,28 +190,50 @@
         for (let comp of part.recipe) html += renderNode(comp.item, comp.amount * craftAmount);
         html += `</ul>`;
         
+        //底层基础材料 (T0) 的智能汇总
+       
         const baseTotals = {};
-        function addBaseReqs(itemId, amount) {
-            if (unlimitedItems[itemId]) return; 
+        
+        function addBaseReqs(itemId, neededAmount) {
+            if (unlimitedItems[itemId]) return; // 勾选了 MAX 直接跳过
+            
+            const have = inventory[itemId] || 0;
+            // 计算真正缺多少个这个物品
+            const actualMissing = Math.max(0, neededAmount - have);
+            
+            // 如果库存已经够了，不需要再往下索取材料了！
+            if (actualMissing === 0) return;
+
+            // 如果还有配方，就拿“缺的那部分”去算下级材料
             if (recipes[itemId]) {
-                for (let c of recipes[itemId]) addBaseReqs(c.item, amount * c.amount);
+                for (let c of recipes[itemId]) {
+                    addBaseReqs(c.item, actualMissing * c.amount);
+                }
             } else {
-                baseTotals[itemId] = (baseTotals[itemId] || 0) + amount;
+                // 如果是基础材料，直接记录缺了多少
+                baseTotals[itemId] = (baseTotals[itemId] || 0) + actualMissing;
             }
         }
-        for (let comp of part.recipe) addBaseReqs(comp.item, comp.amount * craftAmount);
+        
+        for (let comp of part.recipe) {
+            addBaseReqs(comp.item, comp.amount * craftAmount);
+        }
+    
 
         html += `<div style="margin-top: 30px; border-top: 1px solid var(--border-color); padding-top: 20px;"><h4>🧱 基础材料总计 (T0)</h4><div style="display: grid; grid-template-columns: 1fr 1fr; gap: 10px; font-size: 0.9rem;">`;
-        for (let [id, total] of Object.entries(baseTotals)) {
+        
+        // 如果没有任何缺的基础材料
+        if (Object.keys(baseTotals).length === 0) {
+            html += `<div style="grid-column: span 2; text-align: center; color: var(--success); font-weight: bold; padding: 10px;">🎉 所有基础材料均已充足！</div>`;
+        }
+
+        for (let [id, totalMiss] of Object.entries(baseTotals)) {
             const item = allItems[id];
-            const isUnlimited = unlimitedItems[id];
-            const have = isUnlimited ? '∞' : (inventory[id] || 0);
-            const miss = isUnlimited ? 0 : total - have;
-            const color = miss > 0 ? 'var(--danger)' : 'var(--success)';
-            
+            // 这里的 totalMiss 就是算出来的、你需要去挖的纯缺口数量
+            // 因为前面的逻辑已经减去了各级库存，所以这里不再重复减库存
             html += `<div style="display:flex; justify-content:space-between; padding:6px 12px; background:#f8fafc; border-radius:6px; align-items:center;">
                 <span style="display:flex; align-items:center; gap:6px;"><span class="node-icon" data-icon="${id}"></span> ${item.name}</span>
-                <span>总需 <b>${total}</b> / 缺 <b style="color:${color}">${miss}</b></span>
+                <span>缺少 <b style="color:var(--danger)">${totalMiss}</b></span>
             </div>`;
         }
         html += `</div></div>`;
@@ -241,7 +262,7 @@
                 checkbox.style.marginRight = '8px';
                 checkbox.style.cursor = 'pointer';
                 checkbox.checked = unlimitedItems[key];
-                checkbox.title = "勾选代表材料充足，无视数量直接满额";
+                checkbox.title = "勾选代表材料充足";
                 checkbox.onchange = (e) => {
                     unlimitedItems[key] = e.target.checked;
                     saveInventoryToStorage();
