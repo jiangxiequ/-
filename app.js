@@ -19,12 +19,45 @@
         { level: 3, name: '须鲸级' }, { level: 4, name: '腔棘鱼级' }, { level: 5, name: '希尔德拉' }
     ];
 
+    // ==========================================
+    // 💾 自动保存与读取系统
+    // ==========================================
+    function saveState() {
+        const state = {
+            currentPartCode,
+            craftAmount,
+            nodeInventory,
+            nodeUnlimited,
+            expandedItems: Array.from(expandedItems) // Set 转换为数组保存
+        };
+        localStorage.setItem('submarine_calc_state', JSON.stringify(state));
+    }
+
+    function loadState() {
+        const saved = localStorage.getItem('submarine_calc_state');
+        if (saved) {
+            try {
+                const state = JSON.parse(saved);
+                if (state.currentPartCode) currentPartCode = state.currentPartCode;
+                if (state.craftAmount) craftAmount = state.craftAmount;
+                if (state.nodeInventory) nodeInventory = state.nodeInventory;
+                if (state.nodeUnlimited) nodeUnlimited = state.nodeUnlimited;
+                if (state.expandedItems) expandedItems = new Set(state.expandedItems);
+            } catch (e) {
+                console.error('读取存档失败', e);
+            }
+        }
+    }
+
     async function loadData() {
         const res = await fetch('./items.json');
         const data = await res.json();
         allItems = data.items;
         recipes = data.recipes;
         partsDB = data.parts;
+        
+        // 数据加载完后再读取保存的状态
+        loadState();
     }
 
     function renderIcon(item, container) {
@@ -60,6 +93,9 @@
                 btn.textContent = row.level;
                 
                 if (partsDB[code]) {
+                    // 恢复高亮状态
+                    if (currentPartCode === code) btn.classList.add('active');
+                    
                     btn.onclick = () => {
                         document.querySelectorAll('.part-btn').forEach(b => b.classList.remove('active'));
                         btn.classList.add('active');
@@ -70,7 +106,6 @@
                         nodeUnlimited = {};
                         updateUI();
                     };
-                    if (currentPartCode === code) btn.classList.add('active');
                 } else {
                     btn.className += ' disabled';
                     btn.title = '暂无此部件数据';
@@ -82,7 +117,6 @@
         });
     }
 
-    // 获取当前节点的“局部库存/勾选”状态
     function getNodeState(path) {
         return {
             isUnlimited: nodeUnlimited[path] || false,
@@ -93,9 +127,9 @@
     function updateUI() {
         renderCraftPanel();
         renderSummaryPanel();
+        saveState(); // 🔥 每次 UI 更新后，立刻存档
     }
 
-    // 渲染中间树
     function renderCraftPanel() {
         if (!currentPartCode || !partsDB[currentPartCode]) {
             craftBody.innerHTML = '<div class="empty-state">请在左侧选择一个部件</div>';
@@ -194,7 +228,6 @@
         });
     }
 
-    //右侧“总仓库”面板
     function renderSummaryPanel() {
         if (!currentPartCode || !partsDB[currentPartCode]) {
             inventoryBody.innerHTML = '<div class="empty-state">请在左侧选择一个部件</div>';
@@ -203,7 +236,6 @@
 
         const part = partsDB[currentPartCode];
         
-        // 1. 计算理论总需（蓝色数字用）：把所有该物品的数量简单粗暴加起来
         const totalNeeds = {};
         function calcTotal(itemId, amount) {
             totalNeeds[itemId] = (totalNeeds[itemId] || 0) + amount;
@@ -217,7 +249,6 @@
             calcTotal(comp.item, comp.amount * craftAmount);
         }
 
-        // 2. 计算真实缺口（红色数字用）：从根节点向下遍历，遇到勾选 MAX 或局部填满就阻断
         const actualRemaining = {};
         function calcRemaining(itemId, amount, path) {
             const { isUnlimited, have } = getNodeState(path);
@@ -239,7 +270,6 @@
             calcRemaining(comp.item, comp.amount * craftAmount, `root-${comp.item}-${i}`);
         }
 
-        // 3. 提取所有涉及的纯基础材料 (T0)
         const t0List = new Set();
         function extractT0(itemId) {
             if (recipes[itemId]) {
@@ -250,10 +280,8 @@
         }
         for (let comp of part.recipe) extractT0(comp.item);
 
-        // 4. 渲染
-        let html = `<div style="font-size:0.8rem; color:var(--text-sub); margin-bottom:10px; font-weight:600;">基础材料清单 (T0)</div>`;
+        let html = `<div style="font-size:0.8rem; color:var(--text-sub); margin-bottom:10px; font-weight:600;">📊 基础材料清单 (T0)</div>`;
         
-        // 检查是不是所有的 T0 材料缺口都是 0
         let isAllDone = true;
         for (let id of t0List) {
             const miss = actualRemaining[id] || 0;
@@ -264,6 +292,7 @@
             html = `<div style="text-align: center; padding: 40px 10px;">
                 <div style="font-size: 2.5rem; margin-bottom: 10px;">🎉</div>
                 <div style="font-size: 1.1rem; font-weight: bold; color: var(--success);">全部材料已收集完成！</div>
+                <div style="font-size: 0.85rem; color: var(--text-sub); margin-top: 8px;">去大干一场吧！</div>
             </div>`;
         } else {
             html += `<div style="display: grid; grid-template-columns: 1fr; gap: 8px;">`;
@@ -275,11 +304,8 @@
                 const total = totalNeeds[id] || 0;
                 const miss = actualRemaining[id] || 0;
                 
-                // 只有总数 > 0 才显示
                 if (total === 0) continue;
 
-                // 如果这个材料已经被某条分支的 MAX 彻底覆盖，理论上它的 miss 是 0
-                // 为了美观，我们给 miss 为 0 的标注绿色，大于 0 的标注红色
                 const missColor = miss > 0 ? 'var(--danger)' : 'var(--success)';
                 const missText = miss > 0 ? `还需 ${miss}` : `已够`;
 
@@ -306,7 +332,6 @@
         });
     }
 
-    // 中间树的局部操作
     window.updateNodeInventory = function(path, val) {
         let v = parseInt(val) || 0;
         if (v < 0) v = 0;
@@ -334,14 +359,21 @@
             if (icon) icon.classList.toggle('open');
             if (isNowShowing) expandedItems.add(path);
             else expandedItems.delete(path);
+            saveState(); // 折叠/展开也保存一下
         }
     };
 
     window.clearAllData = function() {
-        if (confirm('确定要清空当前所有勾选和库存数据吗？')) {
+        if (confirm('确定要清空所有勾选、库存以及展开状态吗？')) {
+            localStorage.removeItem('submarine_calc_state');
             nodeInventory = {};
             nodeUnlimited = {};
             expandedItems.clear();
+            // 重置为默认状态
+            currentPartCode = Object.keys(partsDB)[0] || null;
+            craftAmount = 1;
+            
+            renderMatrix(); // 重新渲染左侧以重置高亮
             updateUI();
         }
     };
@@ -349,12 +381,15 @@
     async function init() {
         await loadData();
         renderMatrix();
-        const firstCode = Object.keys(partsDB)[0];
-        if (firstCode) {
-            currentPartCode = firstCode;
-            renderMatrix();
-            updateUI();
+        
+        // 如果存档里有部件就加载存档的，没有就选第一个
+        if (!currentPartCode || !partsDB[currentPartCode]) {
+            currentPartCode = Object.keys(partsDB)[0];
         }
+        
+        // 确保左侧的高亮匹配当前选中的部件
+        renderMatrix(); 
+        updateUI();
     }
     init();
 })();
