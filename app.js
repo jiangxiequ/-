@@ -10,9 +10,6 @@
     let nodeUnlimited = {};
     let expandedItems = new Set();
 
-    // 记录全局总仓库（只用于你想统一减库存时用，但根据你的需求，这里我们默认全为0，只看总需）
-    // 如果后续需要全局减，我们可以再加，但先保持极简。
-
     const matrixBody = document.getElementById('matrixBody');
     const craftBody = document.getElementById('craftBody');
     const inventoryBody = document.getElementById('inventoryBody');
@@ -93,28 +90,6 @@
         };
     }
 
-    // 递归计算树，并返回一个纯净的“总需求对象” (去重汇总)
-    function calculateTreeNeeds() {
-        if (!currentPartCode || !partsDB[currentPartCode]) return {};
-        
-        const part = partsDB[currentPartCode];
-        const totalNeeds = {}; // 纯统计：这个部件到底需要多少该物品（含各级加起来的总数）
-
-        // 第一遍：递归算出理论上各级物品各需要多少
-        function calc(itemId, amount) {
-            totalNeeds[itemId] = (totalNeeds[itemId] || 0) + amount;
-            if (recipes[itemId]) {
-                for (let comp of recipes[itemId]) {
-                    calc(comp.item, amount * comp.amount);
-                }
-            }
-        }
-        for (let comp of part.recipe) {
-            calc(comp.item, comp.amount * craftAmount);
-        }
-        return totalNeeds;
-    }
-
     function updateUI() {
         renderCraftPanel();
         renderSummaryPanel();
@@ -149,10 +124,8 @@
             
             const { isUnlimited, have } = getNodeState(path);
             
-            // 局部的算法：当前所需 - 局部拥有
             let missing = isUnlimited ? 0 : Math.max(0, neededAmount - have);
             
-            // 渲染“缺”的样式
             let missingHtml = '';
             if (missing > 0) {
                 missingHtml = `<span class="stat-missing neg">缺 ${missing}</span>`;
@@ -195,7 +168,6 @@
 
             if (hasRecipe && !isUnlimited) { 
                 nodeHtml += `<ul class="tree-children ${showClass}">`;
-                // 中间往下递归，只看局部缺了多少
                 const actualCraftAmount = Math.max(0, neededAmount - have);
                 for (let comp of recipes[itemId]) {
                     const childPath = path + '-' + comp.item;
@@ -222,95 +194,109 @@
         });
     }
 
-    // 渲染右侧“总仓库”面板（纯统计展示）
+    // 🔥 全新右侧“总仓库”面板
     function renderSummaryPanel() {
         if (!currentPartCode || !partsDB[currentPartCode]) {
             inventoryBody.innerHTML = '<div class="empty-state">请在左侧选择一个部件</div>';
             return;
         }
 
-        const totalNeeds = calculateTreeNeeds();
+        const part = partsDB[currentPartCode];
         
-        // 检查是否所有材料都被局部勾选满了
-        // 如果某个物品的“理论上总需”数量，完全被局部勾选/输入抵消了，就判定为“已收集完成”
-        let allCollected = true;
-        
-        // 为了判断，我们再走一遍树，看看有没有“未被 MAX 且局部库存不够”的 T0/T1
-        // 但其实更简单的方法是直接看中间面板里的数据。这里为了演示，我们以“基础材料(T0)的缺失”为准
-        // 如果只要有一个最基础的 T0 材料缺了，那就不算收集完成。
-        
-        // 由于总需里包含了所有的层级，我们要去掉那些已经被上游 MAX 覆盖的需求。
-        // 我们换个思路：直接计算右侧的真实需求。
-        
-        // 我们用一个新的算法：从根节点向下遍历。
-        // 如果当前节点被 MAX，那么它和它的子节点都算“已满足”。
-        // 如果没被 MAX，就扣除它的局部库存，剩下的缺口传给子节点。
-        
-        const actualNeeds = new Map(); // 记录最终未满足的缺口
-        let hasAnyDemand = false;
-
-        function calcRemaining(itemId, amount, path) {
-            const item = allItems[itemId];
-            if (!item) return;
-            
-            const { isUnlimited, have } = getNodeState(path);
-            
-            if (isUnlimited) return; // 勾选了 MAX，直接跳过，不产生缺口
-            
-            const remain = Math.max(0, amount - have);
-            if (remain <= 0) return; // 局部的库存就填满了，不产生缺口
-            
-            // 如果有配方，拿剩余的缺口去算子材料
+        // 1. 计算理论总需（蓝色数字用）：把所有该物品的数量简单粗暴加起来
+        const totalNeeds = {};
+        function calcTotal(itemId, amount) {
+            totalNeeds[itemId] = (totalNeeds[itemId] || 0) + amount;
             if (recipes[itemId]) {
                 for (let comp of recipes[itemId]) {
-                    const childPath = path + '-' + comp.item;
-                    calcRemaining(comp.item, remain * comp.amount, childPath);
+                    calcTotal(comp.item, amount * comp.amount);
                 }
-            } else {
-                // 是基础材料，记录缺口
-                actualNeeds.set(itemId, (actualNeeds.get(itemId) || 0) + remain);
-                hasAnyDemand = true;
             }
         }
-
-        const part = partsDB[currentPartCode];
-        for (let i = 0; i < part.recipe.length; i++) {
-            const comp = part.recipe[i];
-            const rootPath = `root-${comp.item}-${i}`;
-            calcRemaining(comp.item, comp.amount * craftAmount, rootPath);
+        for (let comp of part.recipe) {
+            calcTotal(comp.item, comp.amount * craftAmount);
         }
 
-        let html = '';
+        // 2. 计算真实缺口（红色数字用）：从根节点向下遍历，遇到勾选 MAX 或局部填满就阻断
+        const actualRemaining = {};
+        function calcRemaining(itemId, amount, path) {
+            const { isUnlimited, have } = getNodeState(path);
+            if (isUnlimited) return; 
+            
+            const remain = Math.max(0, amount - have);
+            if (remain <= 0) return;
+            
+            if (recipes[itemId]) {
+                for (let comp of recipes[itemId]) {
+                    calcRemaining(comp.item, remain * comp.amount, path + '-' + comp.item);
+                }
+            } else {
+                actualRemaining[itemId] = (actualRemaining[itemId] || 0) + remain;
+            }
+        }
+        for (let i = 0; i < part.recipe.length; i++) {
+            const comp = part.recipe[i];
+            calcRemaining(comp.item, comp.amount * craftAmount, `root-${comp.item}-${i}`);
+        }
 
-        if (!hasAnyDemand) {
+        // 3. 提取所有涉及的纯基础材料 (T0)
+        const t0List = new Set();
+        function extractT0(itemId) {
+            if (recipes[itemId]) {
+                for (let comp of recipes[itemId]) extractT0(comp.item);
+            } else {
+                t0List.add(itemId);
+            }
+        }
+        for (let comp of part.recipe) extractT0(comp.item);
+
+        // 4. 渲染
+        let html = `<div style="font-size:0.8rem; color:var(--text-sub); margin-bottom:10px; font-weight:600;">📊 基础材料清单 (T0)</div>`;
+        
+        // 检查是不是所有的 T0 材料缺口都是 0
+        let isAllDone = true;
+        for (let id of t0List) {
+            const miss = actualRemaining[id] || 0;
+            if (miss > 0) { isAllDone = false; break; }
+        }
+
+        if (isAllDone && t0List.size > 0) {
             html = `<div style="text-align: center; padding: 40px 10px;">
-                <div style="font-size: 2rem; margin-bottom: 10px;">🎉</div>
+                <div style="font-size: 2.5rem; margin-bottom: 10px;">🎉</div>
                 <div style="font-size: 1.1rem; font-weight: bold; color: var(--success);">全部材料已收集完成！</div>
-                <div style="font-size: 0.85rem; color: var(--text-sub); margin-top: 8px;">请在中间树状图中勾选 MAX 或填写库存以更新状态</div>
+                <div style="font-size: 0.85rem; color: var(--text-sub); margin-top: 8px;">去大干一场吧！</div>
             </div>`;
         } else {
-            // 展示全量总需（分 T0 和 T1/T2）
-            html += `<div style="font-size:0.8rem; color:var(--text-sub); margin-bottom:10px; font-weight:600;">📊 当前部件材料总需（未完成）</div>`;
-            
-            // 我们提取实际还需要收集的
             html += `<div style="display: grid; grid-template-columns: 1fr; gap: 8px;">`;
             
-            for (let [id, totalMiss] of actualNeeds.entries()) {
+            for (let id of t0List) {
                 const item = allItems[id];
                 if(!item) continue;
+
+                const total = totalNeeds[id] || 0;
+                const miss = actualRemaining[id] || 0;
                 
-                html += `<div class="inv-row" style="background:#fff8f5; padding:8px 12px; border-radius:8px; border:1px solid #fbebe6;">
+                // 只有总数 > 0 才显示
+                if (total === 0) continue;
+
+                // 如果这个材料已经被某条分支的 MAX 彻底覆盖，理论上它的 miss 是 0
+                // 为了美观，我们给 miss 为 0 的标注绿色，大于 0 的标注红色
+                const missColor = miss > 0 ? 'var(--danger)' : 'var(--success)';
+                const missText = miss > 0 ? `还需 ${miss}` : `已够`;
+
+                html += `<div class="inv-row" style="background:#fffbf7; padding:10px 12px; border-radius:8px; border:1px solid #fbebe6;">
                     <div class="inv-label">
                         <div class="inv-icon" data-icon="${id}"></div>
                         <span>${item.name}</span>
                     </div>
-                    <span style="color: var(--danger); font-weight: bold;">还需 ${totalMiss}</span>
+                    <div style="display: flex; gap: 8px; font-size: 0.9rem; font-weight: 600; align-items: center;">
+                        <span style="color: var(--primary);">总需 ${total}</span>
+                        <span style="color: #ccc;">/</span>
+                        <span style="color: ${missColor};">${missText}</span>
+                    </div>
                 </div>`;
             }
             html += `</div>`;
-            
-            // 你之前想看总的 T0 素材一共要多少，我们也可以列出（虽然中间已经看到了）
-            // 这里就纯粹只显示“根据你的勾选，现在还缺多少”，这符合“总仓库”的补料单作用。
         }
 
         inventoryBody.innerHTML = html;
@@ -320,7 +306,6 @@
             if (allItems[id]) renderIcon(allItems[id], span);
         });
     }
-
 
     // 中间树的局部操作
     window.updateNodeInventory = function(path, val) {
