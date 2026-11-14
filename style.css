@@ -67,3 +67,27 @@ body { background: var(--bg-color); margin: 0; padding: 20px; color: var(--text-
 
 .badge { background: var(--selected-bg); color: var(--primary); padding: 2px 8px; border-radius: 12px; font-size: 0.75rem; font-weight: 600; } 
 .empty-state { text-align: center; color: var(--text-sub); padding: 40px 20px; }
+/* 中间节点新增的交互控件样式 */
+.inline-ctrl {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+}
+.inline-inv-input {
+    width: 50px;
+    padding: 4px;
+    border: 1px solid var(--border-color);
+    border-radius: 6px;
+    text-align: center;
+    font-size: 0.85rem;
+    font-weight: bold;
+}
+.inline-inv-input:focus {
+    border-color: var(--primary);
+    outline: none;
+}
+.inline-checkbox {
+    width: 16px;
+    height: 16px;
+    cursor: pointer;
+}
