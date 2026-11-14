@@ -6,8 +6,11 @@
     let craftAmount = 1;
     let inventory = {};
     
-    // 🔥 状态：记录哪些材料被勾选了“无限/管够”
+    // 记录哪些材料被勾选了“无限/管够”
     let unlimitedItems = {}; 
+    
+    //记录当前哪些节点是展开状态
+    let expandedItems = new Set();
 
     const matrixBody = document.getElementById('matrixBody');
     const craftBody = document.getElementById('craftBody');
@@ -18,7 +21,6 @@
         { level: 3, name: '须鲸级' }, { level: 4, name: '腔棘鱼级' }, { level: 5, name: '希尔德拉' }
     ];
 
-    // 读取本地保存的库存和无限勾选状态
     function loadInventoryFromStorage() {
         const saved = localStorage.getItem('submarine_inventory');
         if (saved) {
@@ -26,7 +28,6 @@
                 const parsed = JSON.parse(saved);
                 Object.keys(parsed).forEach(key => {
                     if (inventory[key] !== undefined) {
-                        // 如果保存的数据是一个特殊字符串（表示无限），则恢复勾选状态
                         if (parsed[key] === 'unlimited') {
                             unlimitedItems[key] = true;
                             inventory[key] = 0;
@@ -39,9 +40,7 @@
         }
     }
 
-    // 保存库存到本地
     function saveInventoryToStorage() {
-        // 我们需要把 unlimitedItems 状态也保存下来
         const saveData = {};
         Object.keys(inventory).forEach(key => {
             if (unlimitedItems[key]) {
@@ -72,7 +71,6 @@
         });
     }
 
-    // 渲染图标
     function renderIcon(item, container) {
         const iconStr = item.icon || '📦';
         if (iconStr.includes('/') || iconStr.includes('.') || iconStr.startsWith('http')) {
@@ -111,6 +109,7 @@
                         btn.classList.add('active');
                         currentPartCode = code;
                         craftAmount = 1;
+                        expandedItems.clear(); // 切换部件时，清空之前的展开状态
                         renderCraftPanel();
                     };
                     if (currentPartCode === code) btn.classList.add('active');
@@ -152,20 +151,21 @@
             if (!item) return '';
             
             const isUnlimited = unlimitedItems[itemId];
-            // 如果是无限，库存视为无限大，缺口为 0
             const have = isUnlimited ? '∞' : (inventory[itemId] || 0);
             const missing = isUnlimited ? 0 : Math.max(0, neededAmount - have);
-            
-            // 🔥 颜色逻辑修复：缺0就是绿色(pos)，缺>0是红色(neg)
             const missingClass = missing > 0 ? 'neg' : 'pos';
-            
             const hasRecipe = recipes[itemId];
+
+            //根据 expandedItems 判断是否默认展开
+            const isExpanded = expandedItems.has(itemId);
+            const showClass = isExpanded ? 'show' : '';
+            const iconClass = isExpanded ? 'toggle-icon open' : 'toggle-icon';
 
             let nodeHtml = `
                 <li class="tree-item">
-                    <div class="tree-node" onclick="toggleTree(this)">
+                    <div class="tree-node" onclick="toggleTree(this, '${itemId}')">
                         <div class="node-name">
-                            ${hasRecipe ? '<span class="toggle-icon">▶</span>' : '<span class="toggle-icon" style="opacity:0">▶</span>'}
+                            ${hasRecipe ? `<span class="${iconClass}">▶</span>` : '<span class="toggle-icon" style="opacity:0">▶</span>'}
                             <span class="node-icon" data-icon="${itemId}"></span> ${item.name}
                         </div>
                         <div class="node-stats">
@@ -175,8 +175,9 @@
                         </div>
                     </div>
             `;
-            if (hasRecipe && !isUnlimited) { // 如果是无限勾选，就不往下展开了
-                nodeHtml += `<ul class="tree-children">`;
+            if (hasRecipe && !isUnlimited) { 
+                //加上 showClass
+                nodeHtml += `<ul class="tree-children ${showClass}">`;
                 const actualCraftAmount = Math.max(0, neededAmount - have);
                 for (let comp of recipes[itemId]) {
                     nodeHtml += renderNode(comp.item, actualCraftAmount * comp.amount);
@@ -190,10 +191,9 @@
         for (let comp of part.recipe) html += renderNode(comp.item, comp.amount * craftAmount);
         html += `</ul>`;
         
-        // 底部汇总基础材料
         const baseTotals = {};
         function addBaseReqs(itemId, amount) {
-            if (unlimitedItems[itemId]) return; // 无限勾选，不需要再算下级了
+            if (unlimitedItems[itemId]) return; 
             if (recipes[itemId]) {
                 for (let c of recipes[itemId]) addBaseReqs(c.item, amount * c.amount);
             } else {
@@ -224,7 +224,6 @@
         });
     }
 
-    // 🔥 重构右侧库存面板
     function renderInventory() {
         inventoryBody.innerHTML = '';
         const createGroup = (title, keys) => {
@@ -237,17 +236,16 @@
                 const row = document.createElement('div');
                 row.className = 'inv-row';
                 
-                // 勾选框
                 const checkbox = document.createElement('input');
                 checkbox.type = 'checkbox';
                 checkbox.style.marginRight = '8px';
                 checkbox.style.cursor = 'pointer';
                 checkbox.checked = unlimitedItems[key];
-                checkbox.title = "勾选代表材料管够，无视数量直接满额";
+                checkbox.title = "勾选代表材料充足，无视数量直接满额";
                 checkbox.onchange = (e) => {
                     unlimitedItems[key] = e.target.checked;
                     saveInventoryToStorage();
-                    renderInventory(); // 重新渲染以更新输入框状态
+                    renderInventory(); 
                     renderCraftPanel();
                 };
 
@@ -263,7 +261,7 @@
                 label.appendChild(nameSpan);
 
                 const input = document.createElement('input');
-                input.type = 'text'; // 改成 text 因为要显示 ∞ 或者 数字
+                input.type = 'text';
                 input.className = 'inv-input'; 
                 
                 if (unlimitedItems[key]) {
@@ -271,14 +269,13 @@
                     input.style.backgroundColor = '#e2e8f0';
                     input.style.color = '#64748b';
                     input.style.fontWeight = 'bold';
-                    input.disabled = true; // 勾选后不可输入
+                    input.disabled = true;
                 } else {
                     input.value = inventory[key];
                     input.disabled = false;
                     input.style.backgroundColor = '';
                     input.style.color = '';
                     
-                    // 去 0 体验优化
                     input.onfocus = () => { if (input.value === '0') input.value = ''; };
                     input.onblur = () => { if (input.value === '') input.value = '0'; };
                     input.oninput = (e) => {
@@ -316,12 +313,20 @@
 
     window.updateAmount = function(delta) { craftAmount = Math.max(1, craftAmount + delta); renderCraftPanel(); };
     window.setAmount = function(val) { craftAmount = Math.max(1, parseInt(val) || 1); renderCraftPanel(); };
-    window.toggleTree = function(el) {
+    
+    //把状态记录到 expandedItems
+    window.toggleTree = function(el, itemId) {
         const icon = el.querySelector('.toggle-icon');
         const children = el.nextElementSibling;
         if (children && children.classList.contains('tree-children')) {
-            children.classList.toggle('show');
+            const isNowShowing = children.classList.toggle('show');
             if (icon) icon.classList.toggle('open');
+            
+            if (isNowShowing) {
+                expandedItems.add(itemId);
+            } else {
+                expandedItems.delete(itemId);
+            }
         }
     };
 
