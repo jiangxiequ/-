@@ -8,7 +8,7 @@
     "bomb_ash": { "name": "爆弹怪的灰", "icon": "./icons/hui1.webp" },
     "coke": { "name": "焦炭", "icon": "./icons/tan1.webp" },
     "crimson_sap": { "name": "绯红树汁", "icon": "./icons/zhishui1.webp" },
-    "petrified_wood": { "name": "硅化木", "icon": "./icons/guihuamu.webp" },
+    "petrified_wood": { "name": "硅化木", "icon": "./icons/mu1.webp" },
 
     "silver_ingot": { "name": "白银锭", "icon": "./icons/ding3.webp" },
     "mythril_ingot": { "name": "秘银锭", "icon": "./icons/ding4.webp" },
