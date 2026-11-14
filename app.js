@@ -5,6 +5,9 @@
     let currentPartCode = null;
     let craftAmount = 1;
     let inventory = {};
+    
+    // 🔥 新增状态：记录哪些材料被勾选了“无限/充足”
+    let fulfilledItems = {}; 
 
     const matrixBody = document.getElementById('matrixBody');
     const craftBody = document.getElementById('craftBody');
@@ -40,7 +43,10 @@
         recipes = data.recipes;
         partsDB = data.parts;
 
-        Object.keys(allItems).forEach(id => inventory[id] = 0);
+        Object.keys(allItems).forEach(id => {
+            inventory[id] = 0;
+            fulfilledItems[id] = false; // 初始化勾选状态
+        });
         loadInventoryFromStorage();
 
         window.t0Keys = []; window.t1Keys = [];
@@ -49,7 +55,7 @@
         });
     }
 
-    // 渲染图标（支持 emoji 和图片路径）
+    // 渲染图标
     function renderIcon(item, container) {
         const iconStr = item.icon || '📦';
         if (iconStr.includes('/') || iconStr.includes('.') || iconStr.startsWith('http')) {
@@ -117,6 +123,7 @@
                 </div>
                 <div class="craft-amount-ctrl">
                     <button onclick="updateAmount(-1)">-</button>
+                    <!-- 这里加上 onfocus="if(this.value==='1') this.value='';" 防止去0难选 -->
                     <input type="number" min="1" value="${craftAmount}" onchange="setAmount(this.value)">
                     <button onclick="updateAmount(1)">+</button>
                 </div>
@@ -127,16 +134,24 @@
         function renderNode(itemId, neededAmount) {
             const item = allItems[itemId];
             if (!item) return '';
+            
             const have = inventory[itemId] || 0;
-            const missing = Math.max(0, neededAmount - have);
+            const isFulfilled = fulfilledItems[itemId]; // 是否勾选了“已够”
+            
+            // 🔥 如果勾选了“已够”，缺口直接按 0 算，且不需要再往下级消耗
+            const missing = isFulfilled ? 0 : Math.max(0, neededAmount - have);
             const missingClass = missing > 0 ? 'neg' : (neededAmount - have < 0 ? 'pos' : 'zero');
             const hasRecipe = recipes[itemId];
+
+            // 🔥 复选框 HTML
+            const checkboxHtml = `<input type="checkbox" class="fulfill-checkbox" data-id="${itemId}" ${isFulfilled ? 'checked' : ''} onchange="toggleFulfill('${itemId}')" title="勾选代表已有充足材料，无需计算" onclick="event.stopPropagation()">`;
 
             let nodeHtml = `
                 <li class="tree-item">
                     <div class="tree-node" onclick="toggleTree(this)">
                         <div class="node-name">
                             ${hasRecipe ? '<span class="toggle-icon">▶</span>' : '<span class="toggle-icon" style="opacity:0">▶</span>'}
+                            ${checkboxHtml}
                             <span class="node-icon" data-icon="${itemId}"></span> ${item.name}
                         </div>
                         <div class="node-stats">
@@ -146,7 +161,7 @@
                         </div>
                     </div>
             `;
-            if (hasRecipe) {
+            if (hasRecipe && !isFulfilled) { // 勾选了就不往下递归计算了
                 nodeHtml += `<ul class="tree-children">`;
                 const actualCraftAmount = Math.max(0, neededAmount - have);
                 for (let comp of recipes[itemId]) {
@@ -164,8 +179,12 @@
         // 底部汇总基础材料
         const baseTotals = {};
         function addBaseReqs(itemId, amount) {
-            if (recipes[itemId]) for (let c of recipes[itemId]) addBaseReqs(c.item, amount * c.amount);
-            else baseTotals[itemId] = (baseTotals[itemId] || 0) + amount;
+            if (fulfilledItems[itemId]) return; // 勾选了就不算它的下级了
+            if (recipes[itemId]) {
+                for (let c of recipes[itemId]) addBaseReqs(c.item, amount * c.amount);
+            } else {
+                baseTotals[itemId] = (baseTotals[itemId] || 0) + amount;
+            }
         }
         for (let comp of part.recipe) addBaseReqs(comp.item, comp.amount * craftAmount);
 
@@ -182,7 +201,6 @@
         html += `</div></div>`;
         craftBody.innerHTML = html;
 
-        // 把图标渲染进去
         craftBody.querySelectorAll('[data-icon]').forEach(span => {
             const id = span.getAttribute('data-icon');
             if (allItems[id]) renderIcon(allItems[id], span);
@@ -194,6 +212,8 @@
         const createGroup = (title, keys) => {
             const groupDiv = document.createElement('div');
             groupDiv.innerHTML = `<div style="font-size:0.8rem; color:var(--text-sub); margin-bottom:10px; font-weight:600;">${title}</div>`;
+            
+            // 按照特定的顺序排列（可以通过 sort 或者手动拼接）
             keys.forEach(key => {
                 const item = allItems[key];
                 if(!item) return;
@@ -214,9 +234,15 @@
                 input.type = 'number'; input.className = 'inv-input'; input.min = '0';
                 input.value = inventory[key]; 
                 
+                // 🔥 去 0 体验优化
+                input.onfocus = () => { if (input.value === '0') input.value = ''; };
+                input.onblur = () => { if (input.value === '') input.value = '0'; };
+                
                 input.oninput = (e) => {
+                    // 去掉前导 0
                     let v = parseInt(e.target.value) || 0;
                     if (v < 0) v = 0;
+                    e.target.value = v; // 直接把 DOM 里的值改写，去掉前导 0
                     inventory[key] = v;
                     saveInventoryToStorage(); 
                     renderCraftPanel(); 
@@ -226,16 +252,25 @@
             });
             return groupDiv;
         };
+
+        // 🔥 顺序调整：基础材料放最上，合成材料放下面
         inventoryBody.appendChild(createGroup('基础材料', window.t0Keys));
         const spacer = document.createElement('div'); spacer.style.height = '20px';
         inventoryBody.appendChild(spacer);
         inventoryBody.appendChild(createGroup('合成材料', window.t1Keys));
     }
 
+    // 🔥 勾选/取消勾选的方法
+    window.toggleFulfill = function(itemId) {
+        fulfilledItems[itemId] = !fulfilledItems[itemId];
+        renderCraftPanel();
+    };
+
     window.clearAllData = function() {
         if (confirm('确定要清空所有已保存的库存数据吗？')) {
             localStorage.removeItem('submarine_inventory');
             Object.keys(inventory).forEach(id => inventory[id] = 0);
+            Object.keys(fulfilledItems).forEach(id => fulfilledItems[id] = false);
             renderInventory();
             renderCraftPanel();
         }
