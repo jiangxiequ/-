@@ -194,7 +194,7 @@
         });
     }
 
-    // 🔥 全新右侧“总仓库”面板
+    //右侧“总仓库”面板
     function renderSummaryPanel() {
         if (!currentPartCode || !partsDB[currentPartCode]) {
             inventoryBody.innerHTML = '<div class="empty-state">请在左侧选择一个部件</div>';
@@ -251,7 +251,7 @@
         for (let comp of part.recipe) extractT0(comp.item);
 
         // 4. 渲染
-        let html = `<div style="font-size:0.8rem; color:var(--text-sub); margin-bottom:10px; font-weight:600;">📊 基础材料清单 (T0)</div>`;
+        let html = `<div style="font-size:0.8rem; color:var(--text-sub); margin-bottom:10px; font-weight:600;">基础材料清单 (T0)</div>`;
         
         // 检查是不是所有的 T0 材料缺口都是 0
         let isAllDone = true;
@@ -264,7 +264,6 @@
             html = `<div style="text-align: center; padding: 40px 10px;">
                 <div style="font-size: 2.5rem; margin-bottom: 10px;">🎉</div>
                 <div style="font-size: 1.1rem; font-weight: bold; color: var(--success);">全部材料已收集完成！</div>
-                <div style="font-size: 0.85rem; color: var(--text-sub); margin-top: 8px;">去大干一场吧！</div>
             </div>`;
         } else {
             html += `<div style="display: grid; grid-template-columns: 1fr; gap: 8px;">`;
