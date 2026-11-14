@@ -1,0 +1,25 @@
+{
+  "version": 1,
+  "items": {
+    "iron_ore": {
+      "name": "铁矿",
+      "icon": "🪨",
+      "tier": 0
+    },
+    "bomb_monster_ash": {
+      "name": "爆弹怪的灰",
+      "icon": "💥",
+      "tier": 0
+    },
+    "white_steel_ingot": {
+      "name": "白钢锭",
+      "icon": "🥈",
+      "tier": 1,
+      "recipe": [
+        { "itemId": "iron_ore",          "amount": 2 },
+        { "itemId": "bomb_monster_ash",  "amount": 1 }
+      ]
+    }
+  },
+  "craftableIds": ["white_steel_ingot"]
+}

@@ -1,0 +1,460 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>🛠️ 制作材料计算器 · 多级材料与库存</title>
+<style>
+    /* === 样式保持原样，这里省略以节省篇幅 === */
+    * { box-sizing: border-box; font-family: system-ui, 'Segoe UI', Roboto, sans-serif; }
+    body { background: linear-gradient(145deg,#f6f9fc,#e9f0f7); margin:0; min-height:100vh; display:flex; justify-content:center; align-items:center; padding:20px; }
+    .calculator { max-width:1400px; width:100%; background:rgba(255,255,255,.75); backdrop-filter:blur(4px); border-radius:42px; box-shadow:0 25px 50px -12px rgba(0,0,0,.25),inset 0 0 0 1px rgba(255,255,255,.6); padding:28px 32px; }
+    h1 { font-size:2.2rem; font-weight:600; color:#1e2f4b; margin-top:0; margin-bottom:.5rem; display:flex; align-items:center; gap:12px; }
+    h1 span { background:#2b4b6f; color:#fff; font-size:.9rem; padding:4px 14px; border-radius:30px; font-weight:400; }
+    .subhead { color:#3a4f66; margin-bottom:2rem; font-size:1rem; border-left:4px solid #2b6f9b; padding-left:16px; background:#d9e9fa60; border-radius:0 12px 12px 0; }
+    .grid-container { display:flex; gap:30px; align-items:flex-start; flex-wrap:wrap; justify-content:center; }
+    .crafting-panel { flex:2; min-width:600px; background:#ffffffd9; border-radius:28px; padding:20px 24px; box-shadow:0 6px 18px rgba(0,20,40,.08); border:1px solid #fff; }
+    .inventory-panel { flex:1; min-width:300px; background:#fefefee8; border-radius:28px; padding:20px 24px; box-shadow:0 6px 18px rgba(0,20,40,.08); border:1px solid #fff; position:sticky; top:20px; }
+    .panel-header { display:flex; justify-content:space-between; align-items:center; margin-bottom:22px; padding-bottom:10px; border-bottom:1px solid #cbdae9; }
+    .panel-header h2 { font-size:1.5rem; font-weight:600; margin:0; color:#1b344d; }
+    .badge { background:#d8e6f5; border-radius:50px; padding:5px 15px; font-size:.85rem; color:#1f4975; font-weight:500; }
+    .table-wrapper { overflow-x:auto; border-radius:18px; }
+    table { width:100%; border-collapse:collapse; font-size:.95rem; }
+    th { text-align:left; padding:12px 6px 8px; font-weight:600; color:#2f4b6e; border-bottom:1px solid #b8cee4; font-size:.85rem; text-transform:uppercase; letter-spacing:.4px; }
+    td { padding:8px 6px; vertical-align:middle; border-bottom:1px solid #e0eaf3; }
+    .item-cell { display:flex; align-items:center; gap:12px; }
+    .item-icon { width:42px; height:42px; border-radius:12px; background:#d9e3ed; display:flex; align-items:center; justify-content:center; font-size:1.4rem; overflow:hidden; flex-shrink:0; box-shadow:inset 0 1px 4px rgba(0,0,0,.05); cursor:pointer; border:1px solid #c2d4e8; transition:.15s; }
+    .item-icon:hover { background:#cbdae9; border-color:#7d9fc7; }
+    .item-icon img { width:100%; height:100%; object-fit:cover; }
+    .item-name { font-weight:600; color:#1f3349; }
+    .item-name small { font-weight:400; color:#657f9c; font-size:.7rem; display:block; }
+    .craft-controls { display:flex; align-items:center; gap:6px; }
+    .craft-controls input { width:68px; padding:8px 6px; border:1px solid #b7cde0; border-radius:12px; text-align:center; font-weight:600; background:#fff; color:#0c2136; font-size:.9rem; }
+    .craft-controls input:focus { outline:2px solid #4279b0; border-color:transparent; }
+    .btn-icon { width:30px; height:30px; border-radius:30px; border:none; background:#e4eefa; color:#1f4975; font-size:1.2rem; font-weight:600; display:inline-flex; align-items:center; justify-content:center; cursor:pointer; box-shadow:0 1px 3px rgba(0,0,0,.05); }
+    .btn-icon:hover { background:#c6dcf2; color:#0a2d4d; }
+    .btn-icon:active { transform:scale(.94); }
+    .inventory-control { display:flex; align-items:center; gap:4px; }
+    .inventory-control input { width:64px; padding:7px 4px; border:1px solid #b7cde0; border-radius:12px; text-align:center; background:#fff; font-weight:500; }
+    .result-needed { font-weight:700; color:#0e3e5e; background:#e1effb; padding:6px 10px; border-radius:40px; font-size:.95rem; display:inline-block; min-width:70px; text-align:center; }
+    .negative { color:#b13e3e; background:#ffe6e6; }
+    .material-list { font-size:.78rem; color:#627a96; margin-top:4px; display:flex; flex-wrap:wrap; gap:8px; }
+    .material-list span { background:#f0f5fb; padding:2px 8px; border-radius:30px; white-space:nowrap; }
+    .footer-notes { margin-top:28px; padding-top:16px; border-top:1px dashed #b8cee4; font-size:.85rem; color:#4e6c8a; display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:12px; }
+    .reset-btn { background:#fff; border:1px solid #b8cee4; padding:8px 18px; border-radius:40px; font-weight:500; color:#2c4d70; cursor:pointer; font-size:.9rem; display:inline-flex; align-items:center; gap:6px; }
+    .reset-btn:hover { background:#e8f0fa; border-color:#7d9fc7; }
+    .upload-hint { font-size:.7rem; color:#7a95b3; text-align:center; margin-top:6px; }
+    .inventory-item-row { display:flex; align-items:center; justify-content:space-between; padding:10px 0; border-bottom:1px solid #dbe7f2; }
+    .inventory-item-row:last-child { border-bottom:none; }
+    .inv-label { display:flex; align-items:center; gap:10px; font-weight:500; color:#1a334a; }
+    .inv-label .icon-small { width:32px; height:32px; border-radius:8px; background:#d9e3ed; display:flex; align-items:center; justify-content:center; overflow:hidden; font-size:1rem; border:1px solid #c2d4e8; }
+    .inv-label .icon-small img { width:100%; height:100%; object-fit:cover; }
+    .small-input { width:70px; padding:6px 8px; border:1px solid #b7cde0; border-radius:20px; text-align:center; font-weight:500; background:#fff; }
+    .loading { text-align:center; padding:60px 20px; color:#4e6c8a; font-size:1.1rem; }
+    .error-box { background:#ffe6e6; color:#b13e3e; padding:20px 24px; border-radius:16px; margin:20px 0; border:1px solid #f5b5b5; }
+    .error-box code { background:#fff; padding:2px 6px; border-radius:6px; }
+</style>
+</head>
+<body>
+<div class="calculator">
+    <h1>⚒️ 材料制作计算器 <span>多级合成</span></h1>
+    <div class="subhead">📦 输入要制作的物品数量 · 自动计算所有等级材料 · 右侧填写已有库存，实时得出还需收集数量</div>
+
+    <div id="loadingBox" class="loading">📥 正在加载配方数据...</div>
+    <div id="errorBox" class="error-box" style="display:none;"></div>
+
+    <div class="grid-container" id="mainGrid" style="display:none;">
+        <div class="crafting-panel">
+            <div class="panel-header">
+                <h2>📋 制作清单</h2>
+                <div class="badge" id="craftableCount">加载中…</div>
+            </div>
+            <div class="table-wrapper">
+                <table>
+                    <thead>
+                        <tr>
+                            <th>物品 / 图标</th>
+                            <th>制作数量</th>
+                            <th>所需材料 (每1个)</th>
+                            <th>总需求</th>
+                        </tr>
+                    </thead>
+                    <tbody id="tableBody"></tbody>
+                </table>
+            </div>
+            <div class="footer-notes">
+                <div>🔁 点击图标可上传自定义图片</div>
+                <button class="reset-btn" id="resetAllBtn">⟲ 重置所有数量</button>
+            </div>
+            <div class="upload-hint">支持 jpg / png / svg · 上传后自动替换图标</div>
+        </div>
+
+        <div class="inventory-panel">
+            <div class="panel-header">
+                <h2>📦 已有库存</h2>
+                <div class="badge">加减计算</div>
+            </div>
+            <div id="inventoryList"></div>
+            <div style="margin-top:18px;padding:12px;background:#e9f2fb;border-radius:20px;font-size:.85rem;color:#1f4975;">
+                ⚖️ 还需收集 = 总需求 − 已有库存 <span style="opacity:.7;">(负数代表溢出)</span>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script>
+(function () {
+    // ---------- 全局状态 ----------
+    let itemDB = {};          // itemId -> { name, icon, tier, recipe? }
+    let mainItemIds = [];     // 要在表格中显示的可制作物品ID
+    const customImages = {};  // itemId -> dataURL
+    const craftAmounts = {};  // itemId -> 制作数量
+    const inventory = {};     // itemId -> 已有库存
+
+    const rowResultMap = new Map(); // itemId -> { totalSpan, remainSpan }
+
+    // DOM
+    const tbody = document.getElementById('tableBody');
+    const loadingBox = document.getElementById('loadingBox');
+    const errorBox = document.getElementById('errorBox');
+    const mainGrid = document.getElementById('mainGrid');
+    const craftableCount = document.getElementById('craftableCount');
+    const invList = document.getElementById('inventoryList');
+
+    // ---------- 数据加载 ----------
+    async function loadData() {
+        const res = await fetch('./items.json', { cache: 'no-cache' });
+        if (!res.ok) throw new Error(`items.json 加载失败 (HTTP ${res.status})`);
+        const data = await res.json();
+
+        if (!data.items || typeof data.items !== 'object') {
+            throw new Error('items.json 缺少 "items" 字段');
+        }
+        if (!Array.isArray(data.craftableIds)) {
+            throw new Error('items.json 缺少 "craftableIds" 数组');
+        }
+
+        itemDB = data.items;
+        mainItemIds = data.craftableIds;
+
+        // 校验所有 recipe 引用的 itemId 都存在
+        const missing = [];
+        for (const [id, item] of Object.entries(itemDB)) {
+            if (item.recipe) {
+                for (const r of item.recipe) {
+                    if (!itemDB[r.itemId]) {
+                        missing.push(`"${id}" 引用了不存在的材料 "${r.itemId}"`);
+                    }
+                }
+            }
+        }
+        if (missing.length) {
+            throw new Error('配方引用错误：<br>' + missing.join('<br>'));
+        }
+    }
+
+    function initState() {
+        mainItemIds.forEach(id => {
+            if (craftAmounts[id] === undefined) craftAmounts[id] = 1;
+        });
+        Object.keys(itemDB).forEach(id => {
+            if (inventory[id] === undefined) inventory[id] = 0;
+        });
+    }
+
+    // ---------- 递归计算总需求 ----------
+    function getTotalRequirements(itemId, amount, reqMap = new Map()) {
+        reqMap.set(itemId, (reqMap.get(itemId) || 0) + amount);
+        const item = itemDB[itemId];
+        if (item && item.recipe) {
+            for (const comp of item.recipe) {
+                getTotalRequirements(comp.itemId, amount * comp.amount, reqMap);
+            }
+        }
+        return reqMap;
+    }
+
+    function computeAllRequirements() {
+        const totalMap = new Map();
+        for (const id of mainItemIds) {
+            const amt = craftAmounts[id] || 0;
+            if (amt > 0) getTotalRequirements(id, amt, totalMap);
+        }
+        return totalMap;
+    }
+
+    // ---------- 图片上传 ----------
+    function triggerUpload(itemId) {
+        const fileInput = document.createElement('input');
+        fileInput.type = 'file';
+        fileInput.accept = 'image/*';
+        fileInput.style.display = 'none';
+        document.body.appendChild(fileInput);
+        fileInput.click();
+
+        fileInput.addEventListener('change', (e) => {
+            const file = e.target.files[0];
+            if (!file) { document.body.removeChild(fileInput); return; }
+            const reader = new FileReader();
+            reader.onload = (ev) => {
+                customImages[itemId] = ev.target.result;
+                buildTable();
+                buildInventory();
+            };
+            reader.readAsDataURL(file);
+            document.body.removeChild(fileInput);
+        });
+    }
+
+    // ---------- 构建主表格 ----------
+    function buildTable() {
+        tbody.innerHTML = '';
+        rowResultMap.clear();
+
+        craftableCount.textContent = `${mainItemIds.length} 种物品 · 含多级材料`;
+
+        mainItemIds.forEach(itemId => {
+            const item = itemDB[itemId];
+            if (!item) return;
+
+            const row = document.createElement('tr');
+
+            // --- 第1列: 图标 + 名称 + 配方 ---
+            const cell1 = document.createElement('td');
+            cell1.style.minWidth = '180px';
+            const itemDiv = document.createElement('div');
+            itemDiv.className = 'item-cell';
+
+            const iconDiv = document.createElement('div');
+            iconDiv.className = 'item-icon';
+            if (customImages[itemId]) {
+                const img = document.createElement('img');
+                img.src = customImages[itemId];
+                img.alt = item.name;
+                iconDiv.appendChild(img);
+            } else {
+                iconDiv.textContent = item.icon || '📦';
+            }
+            iconDiv.addEventListener('click', (e) => { e.stopPropagation(); triggerUpload(itemId); });
+
+            const nameDiv = document.createElement('div');
+            nameDiv.className = 'item-name';
+            nameDiv.textContent = item.name;
+            const small = document.createElement('small');
+            if (item.recipe && item.recipe.length) {
+                small.textContent = '📌 ' + item.recipe.map(r => {
+                    const m = itemDB[r.itemId];
+                    return `${m ? m.name : r.itemId} ×${r.amount}`;
+                }).join(' + ');
+            } else {
+                small.textContent = '基础材料';
+            }
+            nameDiv.appendChild(small);
+
+            itemDiv.appendChild(iconDiv);
+            itemDiv.appendChild(nameDiv);
+            cell1.appendChild(itemDiv);
+
+            // --- 第2列: 制作数量 ---
+            const cell2 = document.createElement('td');
+            const craftDiv = document.createElement('div');
+            craftDiv.className = 'craft-controls';
+
+            const btnMinus = document.createElement('button');
+            btnMinus.className = 'btn-icon';
+            btnMinus.textContent = '−';
+            btnMinus.addEventListener('click', () => {
+                craftAmounts[itemId] = Math.max(0, (craftAmounts[itemId] || 0) - 1);
+                inputCraft.value = craftAmounts[itemId];
+                refreshResults();
+            });
+
+            const inputCraft = document.createElement('input');
+            inputCraft.type = 'number';
+            inputCraft.min = '0';
+            inputCraft.value = craftAmounts[itemId] || 0;
+            inputCraft.addEventListener('input', (e) => {
+                let v = parseInt(e.target.value, 10);
+                if (isNaN(v) || v < 0) v = 0;
+                craftAmounts[itemId] = v;
+                refreshResults();
+            });
+
+            const btnPlus = document.createElement('button');
+            btnPlus.className = 'btn-icon';
+            btnPlus.textContent = '+';
+            btnPlus.addEventListener('click', () => {
+                craftAmounts[itemId] = (craftAmounts[itemId] || 0) + 1;
+                inputCraft.value = craftAmounts[itemId];
+                refreshResults();
+            });
+
+            craftDiv.appendChild(btnMinus);
+            craftDiv.appendChild(inputCraft);
+            craftDiv.appendChild(btnPlus);
+            cell2.appendChild(craftDiv);
+
+            // --- 第3列: 所需材料 ---
+            const cell3 = document.createElement('td');
+            if (item.recipe && item.recipe.length) {
+                const listDiv = document.createElement('div');
+                listDiv.className = 'material-list';
+                item.recipe.forEach(r => {
+                    const m = itemDB[r.itemId];
+                    const span = document.createElement('span');
+                    span.textContent = `${m ? m.name : r.itemId} ×${r.amount}`;
+                    listDiv.appendChild(span);
+                });
+                cell3.appendChild(listDiv);
+            } else {
+                cell3.textContent = '—';
+                cell3.style.color = '#8a9fb0';
+            }
+
+            // --- 第4列: 总需求/还需 ---
+            const cell4 = document.createElement('td');
+            cell4.style.minWidth = '160px';
+            const container = document.createElement('div');
+            container.style.display = 'flex';
+            container.style.flexDirection = 'column';
+            container.style.gap = '6px';
+            const totalSpan = document.createElement('span');
+            totalSpan.className = 'result-needed';
+            const remainSpan = document.createElement('span');
+            remainSpan.className = 'result-needed';
+            container.appendChild(totalSpan);
+            container.appendChild(remainSpan);
+            cell4.appendChild(container);
+
+            row.appendChild(cell1);
+            row.appendChild(cell2);
+            row.appendChild(cell3);
+            row.appendChild(cell4);
+            tbody.appendChild(row);
+
+            rowResultMap.set(itemId, { totalSpan, remainSpan });
+        });
+
+        refreshResults();
+    }
+
+    // ---------- 刷新结果数字 ----------
+    function refreshResults() {
+        const totalReq = computeAllRequirements();
+        for (const itemId of mainItemIds) {
+            const refs = rowResultMap.get(itemId);
+            if (!refs) continue;
+            const total = totalReq.get(itemId) || 0;
+            const inv = inventory[itemId] || 0;
+            const remain = total - inv;
+
+            refs.totalSpan.textContent = `总: ${total}`;
+            refs.remainSpan.textContent = `还需: ${remain}`;
+
+            if (remain < 0) {
+                refs.remainSpan.className = 'result-needed negative';
+                refs.remainSpan.style.background = '#ffe6e6';
+                refs.remainSpan.style.color = '#b13e3e';
+            } else if (remain === 0) {
+                refs.remainSpan.className = 'result-needed';
+                refs.remainSpan.style.background = '#dcfce8';
+                refs.remainSpan.style.color = '#1f7a4a';
+            } else {
+                refs.remainSpan.className = 'result-needed';
+                refs.remainSpan.style.background = '#e1effb';
+                refs.remainSpan.style.color = '#0e3e5e';
+            }
+        }
+    }
+
+    // ---------- 构建库存面板 ----------
+    function buildInventory() {
+        invList.innerHTML = '';
+        const allIds = Object.keys(itemDB).sort((a, b) => (itemDB[a].tier || 0) - (itemDB[b].tier || 0));
+
+        allIds.forEach(itemId => {
+            const item = itemDB[itemId];
+            if (!item) return;
+            const row = document.createElement('div');
+            row.className = 'inventory-item-row';
+
+            const labelDiv = document.createElement('div');
+            labelDiv.className = 'inv-label';
+
+            const iconSmall = document.createElement('div');
+            iconSmall.className = 'icon-small';
+            iconSmall.style.cursor = 'pointer';
+            if (customImages[itemId]) {
+                const img = document.createElement('img');
+                img.src = customImages[itemId];
+                iconSmall.appendChild(img);
+            } else {
+                iconSmall.textContent = item.icon || '📦';
+            }
+            iconSmall.addEventListener('click', (e) => { e.stopPropagation(); triggerUpload(itemId); });
+
+            const nameSpan = document.createElement('span');
+            nameSpan.textContent = item.name;
+
+            labelDiv.appendChild(iconSmall);
+            labelDiv.appendChild(nameSpan);
+
+            const inputDiv = document.createElement('div');
+            inputDiv.className = 'inventory-control';
+            const invInput = document.createElement('input');
+            invInput.type = 'number';
+            invInput.min = '0';
+            invInput.value = inventory[itemId] || 0;
+            invInput.className = 'small-input';
+            invInput.addEventListener('input', (e) => {
+                let v = parseInt(e.target.value, 10);
+                if (isNaN(v) || v < 0) v = 0;
+                inventory[itemId] = v;
+                refreshResults();
+            });
+            inputDiv.appendChild(invInput);
+
+            row.appendChild(labelDiv);
+            row.appendChild(inputDiv);
+            invList.appendChild(row);
+        });
+    }
+
+    // ---------- 重置 ----------
+    function resetAll() {
+        mainItemIds.forEach(id => { craftAmounts[id] = 1; });
+        Object.keys(inventory).forEach(id => { inventory[id] = 0; });
+        buildTable();
+        buildInventory();
+    }
+
+    // ---------- 初始化 ----------
+    async function init() {
+        try {
+            await loadData();
+            initState();
+            loadingBox.style.display = 'none';
+            mainGrid.style.display = 'flex';
+            buildTable();
+            buildInventory();
+            document.getElementById('resetAllBtn').addEventListener('click', resetAll);
+        } catch (err) {
+            loadingBox.style.display = 'none';
+            errorBox.style.display = 'block';
+            errorBox.innerHTML = `
+                <strong>❌ 数据加载失败</strong><br><br>
+                ${err.message}<br><br>
+                <strong>排查建议：</strong><br>
+                1. 确认 <code>items.json</code> 和本 HTML 文件在同一目录<br>
+                2. 通过 <code>http://</code> 或 <code>https://</code> 访问（<code>file://</code> 下 fetch 会被 CORS 拦截）<br>
+                3. 打开浏览器控制台（F12）查看具体报错
+            `;
+            console.error(err);
+        }
+    }
+
+    init();
+})();
+</script>
+</body>
+</html>
