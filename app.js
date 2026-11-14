@@ -28,7 +28,7 @@
             craftAmount,
             nodeInventory,
             nodeUnlimited,
-            expandedItems: Array.from(expandedItems) // Set 转换为数组保存
+            expandedItems: Array.from(expandedItems)
         };
         localStorage.setItem('submarine_calc_state', JSON.stringify(state));
     }
@@ -56,7 +56,6 @@
         recipes = data.recipes;
         partsDB = data.parts;
         
-        // 数据加载完后再读取保存的状态
         loadState();
     }
 
@@ -93,7 +92,6 @@
                 btn.textContent = row.level;
                 
                 if (partsDB[code]) {
-                    // 恢复高亮状态
                     if (currentPartCode === code) btn.classList.add('active');
                     
                     btn.onclick = () => {
@@ -127,7 +125,7 @@
     function updateUI() {
         renderCraftPanel();
         renderSummaryPanel();
-        saveState(); // 🔥 每次 UI 更新后，立刻存档
+        saveState();
     }
 
     function renderCraftPanel() {
@@ -175,9 +173,13 @@
             const showClass = isExpanded ? 'show' : '';
             const iconClass = isExpanded ? 'toggle-icon open' : 'toggle-icon';
 
+            // 🔥 修改这里：使用 type="number"，并限制 max 属性。不再用 oninput 触发重绘，改用 onchange (失焦/回车触发)
             const inlineInput = isUnlimited 
                 ? `<span style="color:var(--primary); font-weight:bold; font-size:0.85rem; width:55px; text-align:center;">MAX</span>`
-                : `<input type="text" class="inline-inv-input" value="${have}" data-path="${path}" onfocus="if(this.value==='0')this.value='';" onblur="if(this.value==='')this.value='0';" oninput="updateNodeInventory('${path}', this.value)" onclick="event.stopPropagation()">`;
+                : `<input type="number" min="0" max="${neededAmount}" class="inline-inv-input" value="${have}" data-path="${path}" 
+                    onfocus="if(this.value==='0')this.value='';" 
+                    onchange="handleNodeInventoryChange(this, '${path}', ${neededAmount})" 
+                    onclick="event.stopPropagation()">`;
             
             const inlineCheckbox = `<input type="checkbox" class="inline-checkbox" ${isUnlimited?'checked':''} onchange="toggleNodeUnlimited('${path}', this.checked)" onclick="event.stopPropagation()" title="勾选代表当前层级管够">`;
 
@@ -332,12 +334,22 @@
         });
     }
 
-    window.updateNodeInventory = function(path, val) {
-        let v = parseInt(val) || 0;
-        if (v < 0) v = 0;
-        nodeInventory[path] = v;
-        clearTimeout(window._inlineTimer);
-        window._inlineTimer = setTimeout(updateUI, 300);
+    // 🔥 彻底改变输入逻辑：只有 onchange (失焦/回车) 才会触发
+    window.handleNodeInventoryChange = function(inputEl, path, maxAmount) {
+        let val = parseInt(inputEl.value) || 0;
+        
+        if (val < 0) val = 0;
+        if (val > maxAmount) {
+            // 超过所需数量，强制变为最大数量
+            val = maxAmount;
+            inputEl.style.borderColor = 'var(--danger)';
+            setTimeout(() => { inputEl.style.borderColor = ''; }, 600);
+        }
+        
+        // 更新 DOM 和状态
+        inputEl.value = val;
+        nodeInventory[path] = val;
+        updateUI();
     };
 
     window.toggleNodeUnlimited = function(path, isChecked) {
@@ -359,7 +371,7 @@
             if (icon) icon.classList.toggle('open');
             if (isNowShowing) expandedItems.add(path);
             else expandedItems.delete(path);
-            saveState(); // 折叠/展开也保存一下
+            saveState(); 
         }
     };
 
@@ -369,11 +381,10 @@
             nodeInventory = {};
             nodeUnlimited = {};
             expandedItems.clear();
-            // 重置为默认状态
             currentPartCode = Object.keys(partsDB)[0] || null;
             craftAmount = 1;
             
-            renderMatrix(); // 重新渲染左侧以重置高亮
+            renderMatrix(); 
             updateUI();
         }
     };
@@ -382,12 +393,10 @@
         await loadData();
         renderMatrix();
         
-        // 如果存档里有部件就加载存档的，没有就选第一个
         if (!currentPartCode || !partsDB[currentPartCode]) {
             currentPartCode = Object.keys(partsDB)[0];
         }
         
-        // 确保左侧的高亮匹配当前选中的部件
         renderMatrix(); 
         updateUI();
     }
