@@ -4,13 +4,14 @@
     let partsDB = {};
     let currentPartCode = null;
     let craftAmount = 1;
-    let inventory = {};
-    let unlimitedItems = {}; 
-    let expandedItems = new Set();
     
-    // 🔥 新增：针对“当前树状图”的节点级状态，隔离同名物品
+    // 记录中间树的局部状态
     let nodeInventory = {}; 
     let nodeUnlimited = {};
+    let expandedItems = new Set();
+
+    // 记录全局总仓库（只用于你想统一减库存时用，但根据你的需求，这里我们默认全为0，只看总需）
+    // 如果后续需要全局减，我们可以再加，但先保持极简。
 
     const matrixBody = document.getElementById('matrixBody');
     const craftBody = document.getElementById('craftBody');
@@ -21,54 +22,12 @@
         { level: 3, name: '须鲸级' }, { level: 4, name: '腔棘鱼级' }, { level: 5, name: '希尔德拉' }
     ];
 
-    function loadInventoryFromStorage() {
-        const saved = localStorage.getItem('submarine_inventory');
-        if (saved) {
-            try {
-                const parsed = JSON.parse(saved);
-                Object.keys(parsed).forEach(key => {
-                    if (inventory[key] !== undefined) {
-                        if (parsed[key] === 'unlimited') {
-                            unlimitedItems[key] = true;
-                            inventory[key] = 0;
-                        } else {
-                            inventory[key] = parsed[key];
-                        }
-                    }
-                });
-            } catch (e) { console.error('读取失败', e); }
-        }
-    }
-
-    function saveInventoryToStorage() {
-        const saveData = {};
-        Object.keys(inventory).forEach(key => {
-            if (unlimitedItems[key]) {
-                saveData[key] = 'unlimited';
-            } else {
-                saveData[key] = inventory[key];
-            }
-        });
-        localStorage.setItem('submarine_inventory', JSON.stringify(saveData));
-    }
-
     async function loadData() {
         const res = await fetch('./items.json');
         const data = await res.json();
         allItems = data.items;
         recipes = data.recipes;
         partsDB = data.parts;
-
-        Object.keys(allItems).forEach(id => {
-            inventory[id] = 0;
-            unlimitedItems[id] = false;
-        });
-        loadInventoryFromStorage();
-
-        window.t0Keys = []; window.t1Keys = [];
-        Object.keys(allItems).forEach(id => {
-            if (recipes[id]) t1Keys.push(id); else t0Keys.push(id);
-        });
     }
 
     function renderIcon(item, container) {
@@ -110,14 +69,13 @@
                         currentPartCode = code;
                         craftAmount = 1;
                         expandedItems.clear(); 
-                        nodeInventory = {}; // 切换部件清空单次配置
+                        nodeInventory = {}; 
                         nodeUnlimited = {};
-                        renderCraftPanel();
-                        renderInventory();
+                        updateUI();
                     };
                     if (currentPartCode === code) btn.classList.add('active');
                 } else {
-                    btn.classList.add('disabled');
+                    btn.className += ' disabled';
                     btn.title = '暂无此部件数据';
                 }
                 td.appendChild(btn);
@@ -127,7 +85,42 @@
         });
     }
 
-    // 核心：渲染中间材料树
+    // 获取当前节点的“局部库存/勾选”状态
+    function getNodeState(path) {
+        return {
+            isUnlimited: nodeUnlimited[path] || false,
+            have: nodeInventory[path] || 0
+        };
+    }
+
+    // 递归计算树，并返回一个纯净的“总需求对象” (去重汇总)
+    function calculateTreeNeeds() {
+        if (!currentPartCode || !partsDB[currentPartCode]) return {};
+        
+        const part = partsDB[currentPartCode];
+        const totalNeeds = {}; // 纯统计：这个部件到底需要多少该物品（含各级加起来的总数）
+
+        // 第一遍：递归算出理论上各级物品各需要多少
+        function calc(itemId, amount) {
+            totalNeeds[itemId] = (totalNeeds[itemId] || 0) + amount;
+            if (recipes[itemId]) {
+                for (let comp of recipes[itemId]) {
+                    calc(comp.item, amount * comp.amount);
+                }
+            }
+        }
+        for (let comp of part.recipe) {
+            calc(comp.item, comp.amount * craftAmount);
+        }
+        return totalNeeds;
+    }
+
+    function updateUI() {
+        renderCraftPanel();
+        renderSummaryPanel();
+    }
+
+    // 渲染中间树
     function renderCraftPanel() {
         if (!currentPartCode || !partsDB[currentPartCode]) {
             craftBody.innerHTML = '<div class="empty-state">请在左侧选择一个部件</div>';
@@ -154,22 +147,23 @@
             const item = allItems[itemId];
             if (!item) return '';
             
-            const isUnlimited = nodeUnlimited[path] || false;
-            const have = isUnlimited ? '∞' : (nodeInventory[path] !== undefined ? nodeInventory[path] : 0);
+            const { isUnlimited, have } = getNodeState(path);
             
+            // 局部的算法：当前所需 - 局部拥有
             let missing = isUnlimited ? 0 : Math.max(0, neededAmount - have);
-            // 再加上全局库存的抵扣（全局库存代表玩家总共拥有的）
-            const globalHave = unlimitedItems[itemId] ? 999999 : (inventory[itemId] || 0);
-            missing = Math.max(0, missing - globalHave); 
             
-            const missingText = missing > 0 ? missing : '已够';
-            const missingClass = missing > 0 ? 'neg' : 'pos';
+            // 渲染“缺”的样式
+            let missingHtml = '';
+            if (missing > 0) {
+                missingHtml = `<span class="stat-missing neg">缺 ${missing}</span>`;
+            } else {
+                missingHtml = `<span class="stat-missing pos">已够</span>`;
+            }
             
             const hasRecipe = recipes[itemId];
             const isT0 = !hasRecipe;
 
             if (isUnlimited) expandedItems.delete(path);
-
             const isExpanded = expandedItems.has(path);
             const showClass = isExpanded ? 'show' : '';
             const iconClass = isExpanded ? 'toggle-icon open' : 'toggle-icon';
@@ -194,16 +188,16 @@
                                 ${inlineCheckbox}
                                 ${inlineInput}
                             </div>
-                            <span class="stat-missing ${missingClass}">缺: ${missingText}</span>
+                            ${missingHtml}
                         </div>
                     </div>
             `;
 
             if (hasRecipe && !isUnlimited) { 
                 nodeHtml += `<ul class="tree-children ${showClass}">`;
-                const actualCraftAmount = Math.max(0, neededAmount - have - globalHave);
+                // 中间往下递归，只看局部缺了多少
+                const actualCraftAmount = Math.max(0, neededAmount - have);
                 for (let comp of recipes[itemId]) {
-                    // 使用路径 path + 子物品 id 作为唯一标识，解决同名冲突！
                     const childPath = path + '-' + comp.item;
                     nodeHtml += renderNode(comp.item, actualCraftAmount * comp.amount, childPath);
                 }
@@ -213,7 +207,6 @@
             return nodeHtml;
         }
 
-        // 顶层节点
         for (let i = 0; i < part.recipe.length; i++) {
             const comp = part.recipe[i];
             const rootPath = `root-${comp.item}-${i}`;
@@ -229,105 +222,123 @@
         });
     }
 
-    // 渲染右侧库存（全局合成材料）
-    function renderInventory() {
-        inventoryBody.innerHTML = '';
-        const createGroup = (title, keys) => {
-            const groupDiv = document.createElement('div');
-            groupDiv.innerHTML = `<div style="font-size:0.8rem; color:var(--text-sub); margin-bottom:10px; font-weight:600;">${title}</div>`;
+    // 渲染右侧“总仓库”面板（纯统计展示）
+    function renderSummaryPanel() {
+        if (!currentPartCode || !partsDB[currentPartCode]) {
+            inventoryBody.innerHTML = '<div class="empty-state">请在左侧选择一个部件</div>';
+            return;
+        }
+
+        const totalNeeds = calculateTreeNeeds();
+        
+        // 检查是否所有材料都被局部勾选满了
+        // 如果某个物品的“理论上总需”数量，完全被局部勾选/输入抵消了，就判定为“已收集完成”
+        let allCollected = true;
+        
+        // 为了判断，我们再走一遍树，看看有没有“未被 MAX 且局部库存不够”的 T0/T1
+        // 但其实更简单的方法是直接看中间面板里的数据。这里为了演示，我们以“基础材料(T0)的缺失”为准
+        // 如果只要有一个最基础的 T0 材料缺了，那就不算收集完成。
+        
+        // 由于总需里包含了所有的层级，我们要去掉那些已经被上游 MAX 覆盖的需求。
+        // 我们换个思路：直接计算右侧的真实需求。
+        
+        // 我们用一个新的算法：从根节点向下遍历。
+        // 如果当前节点被 MAX，那么它和它的子节点都算“已满足”。
+        // 如果没被 MAX，就扣除它的局部库存，剩下的缺口传给子节点。
+        
+        const actualNeeds = new Map(); // 记录最终未满足的缺口
+        let hasAnyDemand = false;
+
+        function calcRemaining(itemId, amount, path) {
+            const item = allItems[itemId];
+            if (!item) return;
             
-            keys.forEach(key => {
-                const item = allItems[key];
-                if(!item) return;
-                const row = document.createElement('div');
-                row.className = 'inv-row';
-                
-                const checkbox = document.createElement('input');
-                checkbox.type = 'checkbox';
-                checkbox.style.marginRight = '8px';
-                checkbox.style.cursor = 'pointer';
-                checkbox.checked = unlimitedItems[key];
-                checkbox.onchange = (e) => {
-                    unlimitedItems[key] = e.target.checked;
-                    saveInventoryToStorage();
-                    renderInventory(); 
-                    renderCraftPanel();
-                };
-
-                const label = document.createElement('div');
-                label.className = 'inv-label';
-                const iconDiv = document.createElement('div');
-                iconDiv.className = 'inv-icon';
-                renderIcon(item, iconDiv);
-                const nameSpan = document.createElement('span');
-                nameSpan.textContent = item.name;
-                label.appendChild(checkbox);
-                label.appendChild(iconDiv);
-                label.appendChild(nameSpan);
-
-                const input = document.createElement('input');
-                input.type = 'text';
-                input.className = 'inv-input'; 
-                
-                if (unlimitedItems[key]) {
-                    input.value = 'MAX';
-                    input.disabled = true;
-                } else {
-                    input.value = inventory[key];
-                    input.disabled = false;
-                    input.onfocus = () => { if (input.value === '0') input.value = ''; };
-                    input.onblur = () => { if (input.value === '') input.value = '0'; };
-                    input.oninput = (e) => {
-                        let v = parseInt(e.target.value) || 0;
-                        if (v < 0) v = 0;
-                        e.target.value = v; 
-                        inventory[key] = v;
-                        saveInventoryToStorage(); 
-                        renderCraftPanel(); // 联动中间
-                    };
+            const { isUnlimited, have } = getNodeState(path);
+            
+            if (isUnlimited) return; // 勾选了 MAX，直接跳过，不产生缺口
+            
+            const remain = Math.max(0, amount - have);
+            if (remain <= 0) return; // 局部的库存就填满了，不产生缺口
+            
+            // 如果有配方，拿剩余的缺口去算子材料
+            if (recipes[itemId]) {
+                for (let comp of recipes[itemId]) {
+                    const childPath = path + '-' + comp.item;
+                    calcRemaining(comp.item, remain * comp.amount, childPath);
                 }
-                
-                row.appendChild(label); 
-                row.appendChild(input);
-                groupDiv.appendChild(row);
-            });
-            return groupDiv;
-        };
+            } else {
+                // 是基础材料，记录缺口
+                actualNeeds.set(itemId, (actualNeeds.get(itemId) || 0) + remain);
+                hasAnyDemand = true;
+            }
+        }
 
-        inventoryBody.appendChild(createGroup('合成材料', window.t1Keys));
+        const part = partsDB[currentPartCode];
+        for (let i = 0; i < part.recipe.length; i++) {
+            const comp = part.recipe[i];
+            const rootPath = `root-${comp.item}-${i}`;
+            calcRemaining(comp.item, comp.amount * craftAmount, rootPath);
+        }
+
+        let html = '';
+
+        if (!hasAnyDemand) {
+            html = `<div style="text-align: center; padding: 40px 10px;">
+                <div style="font-size: 2rem; margin-bottom: 10px;">🎉</div>
+                <div style="font-size: 1.1rem; font-weight: bold; color: var(--success);">全部材料已收集完成！</div>
+                <div style="font-size: 0.85rem; color: var(--text-sub); margin-top: 8px;">请在中间树状图中勾选 MAX 或填写库存以更新状态</div>
+            </div>`;
+        } else {
+            // 展示全量总需（分 T0 和 T1/T2）
+            html += `<div style="font-size:0.8rem; color:var(--text-sub); margin-bottom:10px; font-weight:600;">📊 当前部件材料总需（未完成）</div>`;
+            
+            // 我们提取实际还需要收集的
+            html += `<div style="display: grid; grid-template-columns: 1fr; gap: 8px;">`;
+            
+            for (let [id, totalMiss] of actualNeeds.entries()) {
+                const item = allItems[id];
+                if(!item) continue;
+                
+                html += `<div class="inv-row" style="background:#fff8f5; padding:8px 12px; border-radius:8px; border:1px solid #fbebe6;">
+                    <div class="inv-label">
+                        <div class="inv-icon" data-icon="${id}"></div>
+                        <span>${item.name}</span>
+                    </div>
+                    <span style="color: var(--danger); font-weight: bold;">还需 ${totalMiss}</span>
+                </div>`;
+            }
+            html += `</div>`;
+            
+            // 你之前想看总的 T0 素材一共要多少，我们也可以列出（虽然中间已经看到了）
+            // 这里就纯粹只显示“根据你的勾选，现在还缺多少”，这符合“总仓库”的补料单作用。
+        }
+
+        inventoryBody.innerHTML = html;
+        
+        inventoryBody.querySelectorAll('[data-icon]').forEach(span => {
+            const id = span.getAttribute('data-icon');
+            if (allItems[id]) renderIcon(allItems[id], span);
+        });
     }
 
+
+    // 中间树的局部操作
     window.updateNodeInventory = function(path, val) {
         let v = parseInt(val) || 0;
         if (v < 0) v = 0;
         nodeInventory[path] = v;
-        
         clearTimeout(window._inlineTimer);
-        window._inlineTimer = setTimeout(() => {
-            renderCraftPanel();
-        }, 500);
+        window._inlineTimer = setTimeout(updateUI, 300);
     };
 
     window.toggleNodeUnlimited = function(path, isChecked) {
         nodeUnlimited[path] = isChecked;
         if (isChecked) expandedItems.delete(path); 
-        renderCraftPanel();
+        updateUI();
     };
 
-    window.clearAllData = function() {
-        if (confirm('确定要清空所有已保存的库存数据吗？')) {
-            localStorage.removeItem('submarine_inventory');
-            Object.keys(inventory).forEach(id => inventory[id] = 0);
-            Object.keys(unlimitedItems).forEach(id => unlimitedItems[id] = false);
-            nodeInventory = {};
-            nodeUnlimited = {};
-            renderInventory();
-            renderCraftPanel();
-        }
-    };
-
-    window.updateAmount = function(delta) { craftAmount = Math.max(1, craftAmount + delta); renderCraftPanel(); };
-    window.setAmount = function(val) { craftAmount = Math.max(1, parseInt(val) || 1); renderCraftPanel(); };
+    window.updateAmount = function(delta) { craftAmount = Math.max(1, craftAmount + delta); updateUI(); };
+    window.setAmount = function(val) { craftAmount = Math.max(1, parseInt(val) || 1); updateUI(); };
     
     window.toggleTree = function(el, path) {
         const icon = el.querySelector('.toggle-icon');
@@ -337,21 +348,28 @@
         if (children && children.classList.contains('tree-children')) {
             const isNowShowing = children.classList.toggle('show');
             if (icon) icon.classList.toggle('open');
-            
             if (isNowShowing) expandedItems.add(path);
             else expandedItems.delete(path);
+        }
+    };
+
+    window.clearAllData = function() {
+        if (confirm('确定要清空当前所有勾选和库存数据吗？')) {
+            nodeInventory = {};
+            nodeUnlimited = {};
+            expandedItems.clear();
+            updateUI();
         }
     };
 
     async function init() {
         await loadData();
         renderMatrix();
-        renderInventory();
         const firstCode = Object.keys(partsDB)[0];
         if (firstCode) {
             currentPartCode = firstCode;
             renderMatrix();
-            renderCraftPanel();
+            updateUI();
         }
     }
     init();
