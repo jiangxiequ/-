@@ -7,6 +7,10 @@
     let inventory = {};
     let unlimitedItems = {}; 
     let expandedItems = new Set();
+    
+    // 🔥 新增：针对“当前树状图”的节点级状态，隔离同名物品
+    let nodeInventory = {}; 
+    let nodeUnlimited = {};
 
     const matrixBody = document.getElementById('matrixBody');
     const craftBody = document.getElementById('craftBody');
@@ -105,8 +109,11 @@
                         btn.classList.add('active');
                         currentPartCode = code;
                         craftAmount = 1;
-                        expandedItems.clear(); // 切换部件清空展开
+                        expandedItems.clear(); 
+                        nodeInventory = {}; // 切换部件清空单次配置
+                        nodeUnlimited = {};
                         renderCraftPanel();
+                        renderInventory();
                     };
                     if (currentPartCode === code) btn.classList.add('active');
                 } else {
@@ -120,7 +127,7 @@
         });
     }
 
-    // 核心：渲染中间的材料树
+    // 核心：渲染中间材料树
     function renderCraftPanel() {
         if (!currentPartCode || !partsDB[currentPartCode]) {
             craftBody.innerHTML = '<div class="empty-state">请在左侧选择一个部件</div>';
@@ -143,36 +150,39 @@
             <ul class="tree-list">
         `;
 
-        // 递归渲染节点
-        function renderNode(itemId, neededAmount) {
+        function renderNode(itemId, neededAmount, path) {
             const item = allItems[itemId];
             if (!item) return '';
             
-            const isUnlimited = unlimitedItems[itemId];
-            const have = isUnlimited ? '∞' : (inventory[itemId] || 0);
-            const missing = isUnlimited ? 0 : Math.max(0, neededAmount - have);
+            const isUnlimited = nodeUnlimited[path] || false;
+            const have = isUnlimited ? '∞' : (nodeInventory[path] !== undefined ? nodeInventory[path] : 0);
+            
+            let missing = isUnlimited ? 0 : Math.max(0, neededAmount - have);
+            // 再加上全局库存的抵扣（全局库存代表玩家总共拥有的）
+            const globalHave = unlimitedItems[itemId] ? 999999 : (inventory[itemId] || 0);
+            missing = Math.max(0, missing - globalHave); 
+            
+            const missingText = missing > 0 ? missing : '已够';
             const missingClass = missing > 0 ? 'neg' : 'pos';
+            
             const hasRecipe = recipes[itemId];
+            const isT0 = !hasRecipe;
 
-            // 🔥 联动修复：如果当前物品被勾选了 MAX，强制收回子节点的展开状态
-            if (isUnlimited) {
-                expandedItems.delete(itemId);
-            }
+            if (isUnlimited) expandedItems.delete(path);
 
-            const isExpanded = expandedItems.has(itemId);
+            const isExpanded = expandedItems.has(path);
             const showClass = isExpanded ? 'show' : '';
             const iconClass = isExpanded ? 'toggle-icon open' : 'toggle-icon';
 
-            // 中间节点的库存与勾选控件
             const inlineInput = isUnlimited 
-                ? `<span style="color:var(--primary); font-weight:bold; font-size:0.85rem; width:50px; text-align:center;">MAX</span>`
-                : `<input type="text" class="inline-inv-input" value="${have}" data-id="${itemId}" onfocus="if(this.value==='0')this.value='';" onblur="if(this.value==='')this.value='0';" oninput="updateInlineInventory('${itemId}', this.value)" onclick="event.stopPropagation()">`;
+                ? `<span style="color:var(--primary); font-weight:bold; font-size:0.85rem; width:55px; text-align:center;">MAX</span>`
+                : `<input type="text" class="inline-inv-input" value="${have}" data-path="${path}" onfocus="if(this.value==='0')this.value='';" onblur="if(this.value==='')this.value='0';" oninput="updateNodeInventory('${path}', this.value)" onclick="event.stopPropagation()">`;
             
-            const inlineCheckbox = `<input type="checkbox" class="inline-checkbox" ${isUnlimited?'checked':''} onchange="toggleUnlimited('${itemId}', this.checked)" onclick="event.stopPropagation()" title="勾选代表管够">`;
+            const inlineCheckbox = `<input type="checkbox" class="inline-checkbox" ${isUnlimited?'checked':''} onchange="toggleNodeUnlimited('${path}', this.checked)" onclick="event.stopPropagation()" title="勾选代表当前层级管够">`;
 
             let nodeHtml = `
                 <li class="tree-item">
-                    <div class="tree-node" onclick="toggleTree(this, '${itemId}')">
+                    <div class="tree-node ${isT0 ? 'is-t0' : ''}" onclick="toggleTree(this, '${path}')">
                         <div class="node-name">
                             ${hasRecipe ? `<span class="${iconClass}">▶</span>` : '<span class="toggle-icon" style="opacity:0">▶</span>'}
                             <span class="node-icon" data-icon="${itemId}"></span> 
@@ -184,17 +194,18 @@
                                 ${inlineCheckbox}
                                 ${inlineInput}
                             </div>
-                            <span class="stat-missing ${missingClass}" style="width: 50px; text-align:right;">缺: ${missing}</span>
+                            <span class="stat-missing ${missingClass}">缺: ${missingText}</span>
                         </div>
                     </div>
             `;
 
             if (hasRecipe && !isUnlimited) { 
                 nodeHtml += `<ul class="tree-children ${showClass}">`;
-                // 树状图往下展开，基于“缺口”来算
-                const actualCraftAmount = Math.max(0, neededAmount - have);
+                const actualCraftAmount = Math.max(0, neededAmount - have - globalHave);
                 for (let comp of recipes[itemId]) {
-                    nodeHtml += renderNode(comp.item, actualCraftAmount * comp.amount);
+                    // 使用路径 path + 子物品 id 作为唯一标识，解决同名冲突！
+                    const childPath = path + '-' + comp.item;
+                    nodeHtml += renderNode(comp.item, actualCraftAmount * comp.amount, childPath);
                 }
                 nodeHtml += `</ul>`;
             }
@@ -202,10 +213,14 @@
             return nodeHtml;
         }
 
-        for (let comp of part.recipe) html += renderNode(comp.item, comp.amount * craftAmount);
+        // 顶层节点
+        for (let i = 0; i < part.recipe.length; i++) {
+            const comp = part.recipe[i];
+            const rootPath = `root-${comp.item}-${i}`;
+            html += renderNode(comp.item, comp.amount * craftAmount, rootPath);
+        }
         html += `</ul>`;
         
-        // 移除底部单独的 T0 汇总，因为已经合并到树里了
         craftBody.innerHTML = html;
 
         craftBody.querySelectorAll('[data-icon]').forEach(span => {
@@ -214,7 +229,7 @@
         });
     }
 
-    // 渲染右侧库存（只保留合成材料）
+    // 渲染右侧库存（全局合成材料）
     function renderInventory() {
         inventoryBody.innerHTML = '';
         const createGroup = (title, keys) => {
@@ -256,16 +271,10 @@
                 
                 if (unlimitedItems[key]) {
                     input.value = 'MAX';
-                    input.style.backgroundColor = '#e2e8f0';
-                    input.style.color = '#64748b';
-                    input.style.fontWeight = 'bold';
                     input.disabled = true;
                 } else {
                     input.value = inventory[key];
                     input.disabled = false;
-                    input.style.backgroundColor = '';
-                    input.style.color = '';
-                    
                     input.onfocus = () => { if (input.value === '0') input.value = ''; };
                     input.onblur = () => { if (input.value === '') input.value = '0'; };
                     input.oninput = (e) => {
@@ -274,7 +283,7 @@
                         e.target.value = v; 
                         inventory[key] = v;
                         saveInventoryToStorage(); 
-                        renderCraftPanel(); 
+                        renderCraftPanel(); // 联动中间
                     };
                 }
                 
@@ -285,32 +294,24 @@
             return groupDiv;
         };
 
-        // 🔥 根据需求：右侧不再显示基础材料，只显示合成材料
         inventoryBody.appendChild(createGroup('合成材料', window.t1Keys));
     }
 
-    // 中间输入框事件
-    window.updateInlineInventory = function(itemId, val) {
+    window.updateNodeInventory = function(path, val) {
         let v = parseInt(val) || 0;
         if (v < 0) v = 0;
-        inventory[itemId] = v;
-        saveInventoryToStorage();
-        // 延迟一点刷新，避免打字时瞬间重绘导致输入框失去焦点
+        nodeInventory[path] = v;
+        
         clearTimeout(window._inlineTimer);
         window._inlineTimer = setTimeout(() => {
             renderCraftPanel();
         }, 500);
     };
 
-    // 中间勾选框事件
-    window.toggleUnlimited = function(itemId, isChecked) {
-        unlimitedItems[itemId] = isChecked;
-        if (isChecked) {
-            expandedItems.delete(itemId); // 勾选 MAX 后自动收起子节点
-        }
-        saveInventoryToStorage();
+    window.toggleNodeUnlimited = function(path, isChecked) {
+        nodeUnlimited[path] = isChecked;
+        if (isChecked) expandedItems.delete(path); 
         renderCraftPanel();
-        renderInventory();
     };
 
     window.clearAllData = function() {
@@ -318,6 +319,8 @@
             localStorage.removeItem('submarine_inventory');
             Object.keys(inventory).forEach(id => inventory[id] = 0);
             Object.keys(unlimitedItems).forEach(id => unlimitedItems[id] = false);
+            nodeInventory = {};
+            nodeUnlimited = {};
             renderInventory();
             renderCraftPanel();
         }
@@ -326,21 +329,17 @@
     window.updateAmount = function(delta) { craftAmount = Math.max(1, craftAmount + delta); renderCraftPanel(); };
     window.setAmount = function(val) { craftAmount = Math.max(1, parseInt(val) || 1); renderCraftPanel(); };
     
-    window.toggleTree = function(el, itemId) {
+    window.toggleTree = function(el, path) {
         const icon = el.querySelector('.toggle-icon');
         const children = el.nextElementSibling;
-        // 如果被勾选了 MAX，就不允许展开了
-        if (unlimitedItems[itemId]) return; 
+        if (nodeUnlimited[path]) return; 
         
         if (children && children.classList.contains('tree-children')) {
             const isNowShowing = children.classList.toggle('show');
             if (icon) icon.classList.toggle('open');
             
-            if (isNowShowing) {
-                expandedItems.add(itemId);
-            } else {
-                expandedItems.delete(itemId);
-            }
+            if (isNowShowing) expandedItems.add(path);
+            else expandedItems.delete(path);
         }
     };
 
